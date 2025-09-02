@@ -1,0 +1,33 @@
+# Combined .gitignore for Python backend, React frontend, and ML notebooks
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.venv/
+*.sqlite3
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+*.log
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# Data
+data/raw/
+data/processed/
+*.csv
+*.tsv
+
+# OS / IDE files
+.DS_Store
+.vscode/
+.idea/
+*.swp
