@@ -21,10 +21,11 @@ build/
 .ipynb_checkpoints/
 
 # Data
-data/raw/
-data/processed/
+ml/data/raw/
+ml/data/processed/
+*.txt
 *.csv
-*.tsv
+
 
 # OS / IDE files
 .DS_Store
