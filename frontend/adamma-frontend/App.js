@@ -4,26 +4,30 @@ import { SafeAreaView, Text, View, StyleSheet } from "react-native";
 const CLASSES = ["Sedentary", "Light", "Moderate", "Vigorous"];
 
 export default function App() {
+  const [current, setCurrent] = useState("Moderate");
   const [timers, setTimers] = useState({ Sedentary: 0, Light: 0, Moderate: 0, Vigorous: 0 });
 
+  // Day-1 placeholder: pretend we're in "Moderate" and increment every 5s
   useEffect(() => {
     const id = setInterval(() => {
-      // Dummy increment for Day 1 visualization
-      setTimers(prev => ({ ...prev, Sedentary: prev.Sedentary + 5 }));
+      setTimers(prev => ({ ...prev, Moderate: prev.Moderate + 5 }));
     }, 5000);
     return () => clearInterval(id);
   }, []);
 
-  const fmt = s => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}m ${sec}s`;
-  };
+  const fmt = s => `${Math.floor(s / 60)}m ${s % 60}s`;
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>ADAMMA — MET Tracker (Day 1 Shell)</Text>
+      <Text style={styles.title}>ADAMMA — MET Tracker</Text>
+
       <View style={styles.card}>
+        <Text style={styles.section}>Current</Text>
+        <Text style={styles.current}>{current}</Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.section}>Today</Text>
         {CLASSES.map(c => (
           <View key={c} style={styles.row}>
             <Text style={styles.label}>{c}</Text>
@@ -31,17 +35,17 @@ export default function App() {
           </View>
         ))}
       </View>
-      <Text style={styles.note}>TEST / Dummy timers increment every 5s.</Text>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: "center" },
-  title: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 16 },
-  card: { borderWidth: 1, borderRadius: 12, padding: 16 },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 },
+  container: { flex: 1, padding: 20, gap: 16 },
+  title: { fontSize: 20, fontWeight: "700", textAlign: "center" },
+  card: { borderWidth: 1, borderRadius: 12, padding: 16, gap: 6 },
+  section: { fontSize: 12, color: "gray", textTransform: "uppercase" },
+  current: { fontSize: 22, fontWeight: "700" },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 },
   label: { fontSize: 16, fontWeight: "600" },
-  value: { fontSize: 16 },
-  note: { textAlign: "center", marginTop: 12, color: "gray" }
+  value: { fontSize: 16 }
 });
