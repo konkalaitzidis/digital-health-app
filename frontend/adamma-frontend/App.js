@@ -1,37 +1,56 @@
 // frontend/adamma-frontend/App.js
 import React, { useEffect, useRef, useState } from "react";
-import { SafeAreaView, Text, View, StyleSheet, StatusBar, Alert } from "react-native";
+import { SafeAreaView, Text, View, StyleSheet, StatusBar } from "react-native";
 import { Accelerometer } from "expo-sensors";
 
 const CLASSES = ["Sedentary", "Light", "Moderate", "Vigorous"];
-const FS = 20;            // ~Hz (match training)
+const FS = 20;               // ~Hz (match training)
 const WIN_SEC = 5;
-const WIN = FS * WIN_SEC; // 100
+const WIN = FS * WIN_SEC;    // 100
 const OVERLAP = 0.5;
 const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
-const API_URL = "http://130.229.165.254:8000/predict"; // <- Change to your server
+const API_URL = "http://130.229.165.254:8000/predict"; // <-- your LAN IP
+
+// Simple mode function
+function majorityVote(arr) {
+  const counts = {};
+  for (const x of arr) counts[x] = (counts[x] || 0) + 1;
+  let best = null, bestC = -1;
+  for (const k of Object.keys(counts)) {
+    if (counts[k] > bestC) { best = k; bestC = counts[k]; }
+  }
+  return best;
+}
 
 export default function App() {
   const [current, setCurrent] = useState("Sedentary");
   const [timers, setTimers] = useState({ Sedentary:0, Light:0, Moderate:0, Vigorous:0 });
   const [status, setStatus] = useState("Starting…");
 
-  const bufferRef = useRef([]);    // rolling [{accel_x, accel_y, accel_z}, ...]
-  const postingRef = useRef(false); // prevent overlapping requests
-  const tickRef = useRef(null);     // 1 Hz timers
+  const bufferRef = useRef([]);            // rolling [{accel_x, accel_y, accel_z}]
+  const postingRef = useRef(false);
+  const lastPostTsRef = useRef(0);
+  const predsRef = useRef([]);             // recent predictions for smoothing
+  const tickRef = useRef(null);
 
-  // Start accelerometer
+  // Start accelerometer stream
   useEffect(() => {
     Accelerometer.setUpdateInterval(1000 / FS);
     const sub = Accelerometer.addListener(({ x, y, z }) => {
       bufferRef.current.push({ accel_x: x, accel_y: y, accel_z: z });
 
-      // When enough samples, send the LAST full window; then keep overlap in buffer
+      // When enough samples and not posting, try to classify
       if (bufferRef.current.length >= WIN && !postingRef.current) {
+        const now = Date.now();
+        // Throttle: at least 1000 ms between posts
+        if (now - lastPostTsRef.current < 1000) return;
+
         const windowSamples = bufferRef.current.slice(-WIN);
-        // Keep the last (WIN - STEP) samples -> 50% overlap
-        bufferRef.current = bufferRef.current.slice(- (WIN - STEP));
+        // keep overlap portion
+        bufferRef.current = bufferRef.current.slice(-(WIN - STEP));
+
         classify(windowSamples);
+        lastPostTsRef.current = now;
       }
     });
 
@@ -58,17 +77,21 @@ export default function App() {
         body: JSON.stringify({ samples })
       });
       if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(`API ${res.status}: ${msg}`);
+        setStatus(`API ${res.status}`);
+        return;
       }
       const data = await res.json();
       const cls = data?.met_class || "Sedentary";
-      setCurrent(cls);
-      setStatus(`OK: ${cls}`);
+
+      // --- Smoothing: majority vote over last 3 predictions ---
+      predsRef.current.push(cls);
+      if (predsRef.current.length > 3) predsRef.current.shift();
+      const smooth = majorityVote(predsRef.current);
+      setCurrent(smooth);
+
+      setStatus(`OK: ${smooth}`);
     } catch (e) {
       setStatus("Offline (keeping last class)");
-      // Optional: Alert once on first failure; then comment this out for quiet mode
-      // Alert.alert("Prediction error", String(e).slice(0, 200));
     } finally {
       postingRef.current = false;
     }

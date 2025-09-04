@@ -58,31 +58,46 @@ class PredictResponse(BaseModel):
 # ---- Helpers ----
 def _calibrate_to_wisdm(seg: np.ndarray) -> np.ndarray:
     """
-    Adjust Expo accelerometer window to resemble WISDM characteristics.
-    Steps:
-      1) Convert g -> m/s^2 (×9.81)
-      2) If z baseline is near 0, shift it toward ~9 (gravity DC offset)
-      3) If overall motion is very low, scale up to a target std (heuristic)
+    Auto-detect input units:
+      - If it already looks like WISDM (m/s^2; z baseline ~9, amplitudes > ~5),
+        return as-is (maybe a tiny amplitude floor only).
+      - If it looks like Expo iPhone data (g, centered around 0, small amplitudes),
+        convert g→m/s^2, align z baseline, and (lightly) boost amplitude if too flat.
     """
-    out = seg.astype(np.float64).copy()
+    x = seg.astype(np.float64, copy=True)
 
-    # 1) units: g -> m/s^2
-    out *= 9.81
+    # Heuristics to detect WISDM-like data (already m/s^2):
+    z_mean = float(x[:, 2].mean())
+    abs95 = float(np.percentile(np.abs(x), 95))  # typical scale snapshot
+    # WISDM-ish if z baseline ~9 OR overall magnitudes already > ~5 m/s^2
+    looks_like_wisdm = (7.0 <= z_mean <= 12.0) or (abs95 > 5.0)
 
-    # 2) gravity alignment on z if centered around ~0
-    z_mean = out[:, 2].mean()
+    if looks_like_wisdm:
+        # Optional tiny floor to avoid "always Sedentary" on super-flat windows
+        mag = np.linalg.norm(x, axis=1)
+        if mag.std() < 0.25:
+            scale = 0.75 / max(mag.std(), 1e-6)
+            x *= np.clip(scale, 1.0, 2.0)
+        return x
+
+    # Otherwise treat it as Expo g-units → convert and align
+    x *= 9.81  # g → m/s^2
+
+    # Align z baseline toward ~9 if centered near 0
+    z_mean = float(x[:, 2].mean())
     if -3.0 < z_mean < 3.0:
-        out[:, 2] += 9.0
+        x[:, 2] += 9.0
 
-    # 3) amplitude boost if too flat
-    mag = np.linalg.norm(out, axis=1)
-    mag_std = mag.std()
-    target_std = 2.0  # heuristic from WISDM walking
-    if mag_std < 0.6:
+    # Light amplitude boost only if extremely flat
+    mag = np.linalg.norm(x, axis=1)
+    mag_std = float(mag.std())
+    target_std = 1.0
+    if mag_std < 0.3:
         scale = target_std / max(mag_std, 1e-6)
-        out *= np.clip(scale, 1.0, 6.0)
+        x *= np.clip(scale, 1.0, 3.0)
 
-    return out
+    return x
+
 
 # ---- Routes ----
 @app.get("/ping")

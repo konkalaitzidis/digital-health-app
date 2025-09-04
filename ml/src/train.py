@@ -39,7 +39,7 @@ if df["accel_z"].dtype == object:
 MET_MAP = {
     "Sitting": "Sedentary",
     "Standing": "Light",
-    "Walking": "Moderate",
+    "Walking": "Light",
     "Upstairs": "Moderate",
     "Downstairs": "Moderate",
     "Jogging": "Vigorous",
