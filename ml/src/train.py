@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
+from features import extract_features
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -49,43 +50,8 @@ df["met_class"] = df["activity"].map(MET_MAP)
 # -----------------
 # Windowing + features extraction
 # -----------------
-def _window_indices(n, win, step):
-    for start in range(0, n - win + 1, step):
-        yield start, start + win
 
-def _extract_features(frame, fs=FS, win_sec=WIN_SEC, overlap=OVERLAP, label_col="met_class"):
-    win = int(win_sec * fs)
-    step = int(win * (1 - overlap))
-    X, y = [], []
-    A = frame[["accel_x", "accel_y", "accel_z"]].values
-    L = frame[label_col].values
-
-    for i, j in _window_indices(len(frame), win, step):
-        seg = A[i:j]                 # [win, 3]
-        labs = L[i:j]
-        # majority label in window
-        vals, cnts = np.unique(labs, return_counts=True)
-        majority = vals[np.argmax(cnts)]
-
-        # per-axis stats (mean, std, min, max, median, IQR)
-        feats = []
-        for k in range(3):
-            a = seg[:, k]
-            feats += [
-                a.mean(), a.std(), a.min(), a.max(), np.median(a),
-                np.percentile(a, 75) - np.percentile(a, 25)  # IQR
-            ]
-
-        # magnitude stats 
-        mag = np.linalg.norm(seg, axis=1)
-        feats += [mag.mean(), mag.std()]
-
-        X.append(np.nan_to_num(feats))
-        y.append(majority)
-
-    return np.asarray(X), np.asarray(y)
-
-X, y = _extract_features(df)
+X, y = extract_features(df, fs=FS, win_sec=WIN_SEC, overlap=OVERLAP, label_col="met_class")
 
 # -----------------
 # Split, scale, train
