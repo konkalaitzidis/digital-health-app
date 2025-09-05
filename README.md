@@ -74,7 +74,7 @@ APK is provided here:
 docs/releases/ADAMMA-v1-android.apk
 ```
 
-Or open this link to download and install: ([link](https://expo.dev/accounts/guskk/projects/adamma-frontend/builds/4621f0f3-52b8-42be-ad6b-ccb40418fac3))
+Or open this link to download and install: ([link](https://expo.dev/accounts/guskk/projects/adamma-frontend/builds/3228d6bd-094f-4738-ad0d-2b3d4c60bc3e))
 
 Or transfer to your phone and tap to install.  
 Or via ADB:
@@ -127,7 +127,7 @@ Open in **Expo Go** (iOS/Android) or emulator.
 - ✅ Android APK (`docs/releases/ADAMMA-v1-android.apk`)  
 - ✅ Model + code (`ml/src/train.py`, `ml/src/model.pkl`, `features.py`)  
 - ✅ Technical report (`technical_report.pdf`)  
-- ✅ Demo video (`docs/demo.mp4`)  
+- ✅ Demo video (`demo.mp4`)  
 
 ---
 
