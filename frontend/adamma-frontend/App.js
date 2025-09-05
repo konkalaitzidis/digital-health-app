@@ -1,7 +1,11 @@
 // frontend/adamma-frontend/App.js
 import React, { useEffect, useRef, useState } from "react";
-import { SafeAreaView, Text, View, StyleSheet, StatusBar, Pressable } from "react-native";
+import {
+  SafeAreaView, Text, View, StyleSheet, StatusBar, Pressable,
+  ScrollView, KeyboardAvoidingView, Platform, TextInput
+} from "react-native";
 import { Accelerometer } from "expo-sensors";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CLASSES = ["Sedentary", "Light", "Moderate", "Vigorous"];
 const COLORS = {
@@ -16,7 +20,10 @@ const WIN_SEC = 5;
 const WIN = FS * WIN_SEC;    // 100
 const OVERLAP = 0.5;
 const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
-const API_URL = "http://130.229.173.39:8000/predict"; // <-- set your LAN IP
+const STORAGE_KEY = "ADAMMA_BACKEND_BASE";    // e.g., http://192.168.1.45:8000
+
+// Known-good default (exactly what previously worked)
+const DEFAULT_BACKEND_BASE = "http://130.229.173.39:8000";
 
 function majorityVote(arr) {
   const counts = {};
@@ -29,6 +36,9 @@ function majorityVote(arr) {
 }
 
 export default function App() {
+  const [backendBase, setBackendBase] = useState(DEFAULT_BACKEND_BASE);
+  const [showSettings, setShowSettings] = useState(false);
+
   const [current, setCurrent] = useState("Sedentary");
   const [timers, setTimers] = useState({ Sedentary:0, Light:0, Moderate:0, Vigorous:0 });
   const [status, setStatus] = useState("Starting…");
@@ -39,6 +49,16 @@ export default function App() {
   const predsRef = useRef([]);             // for smoothing
   const tickRef = useRef(null);
   const ignoreUntilTsRef = useRef(0);      // temporarily ignore classify after reset
+
+  // Load any saved backend base on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        if (saved) setBackendBase(saved);
+      } catch {}
+    })();
+  }, []);
 
   // Start accelerometer stream
   useEffect(() => {
@@ -74,21 +94,32 @@ export default function App() {
     return () => clearInterval(tickRef.current);
   }, [current]);
 
+  // Build final predict URL from base (add /predict, strip trailing slash)
+  function predictUrl() {
+    const base = (backendBase || DEFAULT_BACKEND_BASE).replace(/\/+$/, "");
+    return `${base}/predict`;
+  }
+
   async function classify(samples) {
     try {
       postingRef.current = true;
       setStatus("Predicting…");
-      const res = await fetch(API_URL, {
+      const res = await fetch(predictUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ samples })
       });
-      if (!res.ok) { setStatus(`API ${res.status}`); return; }
+      if (!res.ok) {
+        const txt = await res.text().catch(()=> "");
+        console.log("predict non-200:", res.status, txt);
+        setStatus(`API ${res.status}`);
+        return;
+      }
 
       const data = await res.json();
       const cls = data?.met_class || "Sedentary";
 
-      // Smoothing over last 3 predictions
+      // Smoothing over last 3 predictions (unchanged)
       predsRef.current.push(cls);
       if (predsRef.current.length > 3) predsRef.current.shift();
       const smooth = majorityVote(predsRef.current);
@@ -96,6 +127,7 @@ export default function App() {
       setCurrent(smooth);
       setStatus(`OK: ${smooth}`);
     } catch (e) {
+      console.log("predict error:", e?.message || e);
       setStatus("Offline (keeping last class)");
     } finally {
       postingRef.current = false;
@@ -114,6 +146,14 @@ export default function App() {
     // Reset UI
     setCurrent("Sedentary");
     setStatus("Reset ✓");
+  }
+
+  async function handleSaveBackend() {
+    let base = backendBase.trim();
+    if (base && !/^https?:\/\//.test(base)) base = `http://${base}`;
+    setBackendBase(base);
+    try { await AsyncStorage.setItem(STORAGE_KEY, base); } catch {}
+    setShowSettings(false);
   }
 
   const fmt = s => `${Math.floor(s/60)}m ${s%60}s`;
@@ -135,72 +175,106 @@ export default function App() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
-
-      {/* Main content */}
-      <View style={styles.content}>
-        <Text style={styles.title}>Live MET Tracker</Text>
-
-        <View style={styles.card}>
-          <Text style={styles.section}>Current</Text>
-          <View style={[styles.currentPill, { backgroundColor: COLORS[current] + "22", borderColor: COLORS[current] }]}>
-            <View style={[styles.dot, { backgroundColor: COLORS[current] }]} />
-            <Text style={[styles.current, { color: COLORS[current] }]}>{current}</Text>
+      <KeyboardAvoidingView style={{ flex:1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {/* Header with Settings */}
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Live MET Tracker</Text>
+            <Pressable onPress={() => setShowSettings(s => !s)} style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.85 }]}>
+              <Text style={styles.settingsText}>⚙︎ Settings</Text>
+            </Pressable>
           </View>
-          <Text style={styles.subtle}>Sampling ~{FS} Hz • window {WIN_SEC}s • 50% overlap</Text>
-          <Text style={styles.subtle}>Status: {status}</Text>
 
-          <Pressable onPress={handleReset} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}>
-            <Text style={styles.btnText}>Reset Day</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.section}>Today</Text>
-          {CLASSES.map(c => (
-            <View key={c} style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.dot, { backgroundColor: COLORS[c] }]} />
-                <Text style={[styles.label, { color: COLORS[c] }]}>{c}</Text>
+          {showSettings && (
+            <View style={styles.card}>
+              <Text style={styles.section}>Backend</Text>
+              <Text style={styles.subtle}>Enter your computer’s URL (e.g., http://192.168.1.45:8000)</Text>
+              <TextInput
+                value={backendBase}
+                onChangeText={setBackendBase}
+                placeholder="http://192.168.1.45:8000"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.input}
+              />
+              <View style={{ flexDirection:"row", gap:8, flexWrap:"wrap" }}>
+                <Pressable onPress={handleSaveBackend} style={styles.btn}><Text style={styles.btnText}>Save</Text></Pressable>
               </View>
-              <Text style={styles.value}>{fmt(timers[c])}</Text>
+              <Text style={[styles.subtle, { marginTop:6 }]}>Predict URL will be: {predictUrl()}</Text>
             </View>
-          ))}
-        </View>
+          )}
 
-        <View style={styles.card}>
-          <Text style={styles.section}>Session Summary</Text>
-          <SummaryRow label="Total time" value={total} />
-          <SummaryRow label="Active time (L+M+V)" value={active} />
-          <View style={styles.row}>
-            <Text style={styles.summaryLabel}>Active %</Text>
-            <Text style={styles.value}>{activePct}%</Text>
-          </View>
-          <SummaryRow label="MVPA (M+V)" value={mvpa} />
-          <View style={styles.row}>
-            <Text style={styles.summaryLabel}>MVPA %</Text>
-            <Text style={styles.value}>{mvpaPct}%</Text>
-          </View>
-        </View>
-      </View>
+          {/* Main content */}
+          <View style={styles.card}>
+            <Text style={styles.section}>Current</Text>
+            <View style={[styles.currentPill, { backgroundColor: COLORS[current] + "22", borderColor: COLORS[current] }]}>
+              <View style={[styles.dot, { backgroundColor: COLORS[current] }]} />
+              <Text style={[styles.current, { color: COLORS[current] }]}>{current}</Text>
+            </View>
+            <Text style={styles.subtle}>Sampling ~{FS} Hz • window {WIN_SEC}s • 50% overlap</Text>
+            <Text style={styles.subtle}>Backend: {backendBase || DEFAULT_BACKEND_BASE}</Text>
+            <Text style={styles.subtle}>Status: {status}</Text>
 
-      {/* Fixed footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Created by Konstantinos Kalaitzidis</Text>
-      </View>
+            <Pressable onPress={handleReset} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}>
+              <Text style={styles.btnText}>Reset Day</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.section}>Today</Text>
+            {CLASSES.map(c => (
+              <View key={c} style={styles.row}>
+                <View style={styles.rowLeft}>
+                  <View style={[styles.dot, { backgroundColor: COLORS[c] }]} />
+                  <Text style={[styles.label, { color: COLORS[c] }]}>{c}</Text>
+                </View>
+                <Text style={styles.value}>{fmt(timers[c])}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.section}>Session Summary</Text>
+            <SummaryRow label="Total time" value={total} />
+            <SummaryRow label="Active time (L+M+V)" value={active} />
+            <View style={styles.row}>
+              <Text style={styles.summaryLabel}>Active %</Text>
+              <Text style={styles.value}>{activePct}%</Text>
+            </View>
+            <SummaryRow label="MVPA (M+V)" value={mvpa} />
+            <View style={styles.row}>
+              <Text style={styles.summaryLabel}>MVPA %</Text>
+              <Text style={styles.value}>{mvpaPct}%</Text>
+            </View>
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Created by Konstantinos Kalaitzidis</Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  // Fixed footer layout: space-between keeps footer at bottom
+  safe: { flex:1, backgroundColor:"#fff" },
+  scroll: { padding:20, paddingBottom:28 },
+
+  headerRow: { flexDirection:"row", justifyContent:"space-between", alignItems:"center", marginBottom:8 },
+
+  title: { fontSize:20, fontWeight:"700", textAlign:"left" },
+  settingsBtn: { paddingHorizontal:12, paddingVertical:6, backgroundColor:"#111827", borderRadius:8 },
+  settingsText: { color:"#fff", fontWeight:"700" },
+
+  // Same styling as before, with containers scrollable to fit small screens
   container: { flex:1, padding:20, backgroundColor:"#fff", justifyContent:"space-between" },
   content: { flexGrow:1, gap:16 },
 
-  title: { fontSize:20, fontWeight:"700", textAlign:"center" },
-
-  card: { borderWidth:1, borderColor:"#e5e7eb", borderRadius:12, padding:16, gap:10, backgroundColor:"#fff" },
+  card: { borderWidth:1, borderColor:"#e5e7eb", borderRadius:12, padding:16, gap:10, backgroundColor:"#fff", marginBottom:12 },
   section: { fontSize:12, color:"gray", textTransform:"uppercase", letterSpacing:0.5 },
 
   current: { fontSize:20, fontWeight:"800" },
@@ -236,7 +310,8 @@ const styles = StyleSheet.create({
   },
   btnText: { color:"#fff", fontWeight:"700" },
 
-  // Footer styles (faded)
   footer: { paddingVertical:10, alignItems:"center" },
   footerText: { fontSize:12, color:"#000", opacity:0.7 },
+
+  input: { borderWidth:1, borderColor:"#d1d5db", borderRadius:8, paddingHorizontal:10, paddingVertical:8, fontSize:14, marginTop:6 },
 });
