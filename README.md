@@ -32,7 +32,7 @@ You will need:
 - A **computer** (macOS/Linux/Windows, Python 3.9+) to run the backend.  
 - Both on the **same Wi-Fi network**.  
 
-### 1. Run the backend
+### 1. Run the backend - open a terminal on an IDE
 ```bash
 git clone https://github.com/konkalaitzidis/digital-health-app.git
 cd digital-health-app
@@ -66,7 +66,7 @@ http://<YOUR-IP>:8000/ping
 Should return:
 ```json
 {"status":"ok"}
-
+```
 
 ### 3. Install the Android APK
 APK is provided here:
@@ -74,9 +74,9 @@ APK is provided here:
 docs/releases/ADAMMA-v1-android.apk
 ```
 
-Or open this link to download: https://expo.dev/accounts/guskk/projects/adamma-frontend/builds/4621f0f3-52b8-42be-ad6b-ccb40418fac3
+Or open this link to download and install: ([link](https://expo.dev/accounts/guskk/projects/adamma-frontend/builds/4621f0f3-52b8-42be-ad6b-ccb40418fac3))
 
-Transfer to your phone and tap to install.  
+Or transfer to your phone and tap to install.  
 Or via ADB:
 ```bash
 adb install -r docs/releases/ADAMMA-v1-android.apk
@@ -126,16 +126,15 @@ Open in **Expo Go** (iOS/Android) or emulator.
 ## 📑 Deliverables
 - ✅ Android APK (`docs/releases/ADAMMA-v1-android.apk`)  
 - ✅ Model + code (`ml/src/train.py`, `ml/src/model.pkl`, `features.py`)  
-- ✅ Technical report (`docs/report.pdf`)  
-- ✅ Reproducibility (training/eval scripts + data)  
-- ✅ Demo video (`docs/demo.mp4`, ≤3 min)  
+- ✅ Technical report (`technical_report.pdf`)  
+- ✅ Demo video (`docs/demo.mp4`)  
 
 ---
 
 ## ⚠️ Limitations
 - App doesn't work on background. Screen must be on. 
 - iOS distribution not applicable as requires paid apple developer account
-- WISDM dataset bias: controlled lab collection. Check dataset link above. 
+- WISDM dataset bias: controlled lab collection.
 
 ---
 
