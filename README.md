@@ -35,30 +35,28 @@ You will need:
 ### 1. Run the backend
 ```bash
 git clone https://github.com/konkalaitzidis/digital-health-app.git
-cd <your-repo>
+cd digital-health-app
 
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate   # (Windows: venv\Scripts\activate)
 
 pip install -r requirements.txt
 
-cd backend/app
+cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. Find your computer’s IP
+### 2. Find your computer’s IP - open new terminal window
 
 **macOS/Linux:**
 ```bash
-ipconfig getifaddr en0      # or: hostname -I
+ipconfig getifaddr en0  
 ```
 
 **Windows:**
 ```cmd
 ipconfig
 ```
-
-Look for your Wi-Fi adapter → IPv4 Address (e.g. `192.168.1.45`).  
 
 Check from your phone’s browser:
 ```
@@ -68,13 +66,15 @@ http://<YOUR-IP>:8000/ping
 Should return:
 ```json
 {"status":"ok"}
-```
+
 
 ### 3. Install the Android APK
 APK is provided here:
 ```
 docs/releases/ADAMMA-v1-android.apk
 ```
+
+Or open this link to download: https://expo.dev/accounts/guskk/projects/adamma-frontend/builds/4621f0f3-52b8-42be-ad6b-ccb40418fac3
 
 Transfer to your phone and tap to install.  
 Or via ADB:

@@ -23,7 +23,7 @@ const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
 const STORAGE_KEY = "ADAMMA_BACKEND_BASE";    // e.g., http://192.168.1.45:8000
 
 // Known-good default (exactly what previously worked)
-const DEFAULT_BACKEND_BASE = "http://130.229.173.39:8000";
+const DEFAULT_BACKEND_BASE = "http://192.168.1.154:8000"
 
 function majorityVote(arr) {
   const counts = {};
