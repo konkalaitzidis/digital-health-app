@@ -6,6 +6,7 @@ Mobile app that classifies smartphone accelerometer signals into **4 MET categor
 ---
 
 ## 📊 Project Overview
+- **Demo video:** can be accessed ([here](https://drive.google.com/file/d/1m962H-lEDcuAHSpinBZilzTNX-i7qQ_d/view))  
 - **Dataset:** WISDM v1.1 accelerometer dataset ([link](https://www.cis.fordham.edu/wisdm/dataset.php)).  
 - **ML Pipeline** (`ml/src/train.py`):  
   - Cleans WISDM data, maps activities to MET classes.  
@@ -22,6 +23,8 @@ Mobile app that classifies smartphone accelerometer signals into **4 MET categor
   - Displays current class (color-coded) + per-class timers.  
   - Session summary: **Total, Active, MVPA, Active%, MVPA%**.  
   - Reset button + settings button for user to input custom URL. 
+
+
 
 ---
 
@@ -127,7 +130,7 @@ Open in **Expo Go** (iOS/Android) or emulator.
 - ✅ Android APK (`docs/releases/ADAMMA-v1-android.apk`)  
 - ✅ Model + code (`ml/src/train.py`, `ml/src/model.pkl`, `features.py`)  
 - ✅ Technical report (`technical_report.pdf`)  
-- ✅ Demo video (`demo.mp4`)  
+- ✅ Demo video
 
 ---
 
