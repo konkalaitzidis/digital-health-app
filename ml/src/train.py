@@ -142,7 +142,7 @@ def evaluate_model(name, model, Xtr, ytr, Xte, yte, labels_text):
     clsrep_txt = classification_report(yte, ypred, target_names=labels_text)
     (REPORTS_DIR / f"classification_report_{name}.txt").write_text(clsrep_txt)
 
-    # Save per-model artifact (for inspection / optional backend swap)
+    # Save per-model artifact
     art_path = MODELS_DIR / f"{name}.pkl"
     joblib.dump(
         {"model": model, "scaler": scaler, "label_encoder": le, "fs": FS, "win_sec": WIN_SEC, "overlap": OVERLAP},
@@ -187,13 +187,13 @@ res_txt.write_text(res_df[["Model", "Accuracy", "F1_macro", "TrainTime_sec"]].to
 print(f"\nResults saved to:\n- {res_csv}\n- {res_txt}")
 
 # -----------------
-# Save BEST model to standard path for backend
+# Save BEST model 
 # -----------------
 best_row = res_df.iloc[0]
 best_name = best_row["Model"]
 best_artifact = best_row["artifact_path"]
 
-# Load best artifact and re-dump to canonical path
+# Load best artifact 
 best_payload = joblib.load(best_artifact)
 
 ART = SRC_DIR / "model.pkl"

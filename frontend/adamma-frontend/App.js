@@ -16,7 +16,7 @@ const WIN_SEC = 5;
 const WIN = FS * WIN_SEC;    // 100
 const OVERLAP = 0.5;
 const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
-const API_URL = "http://130.229.165.254:8000/predict"; // <-- set your LAN IP
+const API_URL = "http://130.229.173.39:8000/predict"; // <-- set your LAN IP
 
 function majorityVote(arr) {
   const counts = {};
