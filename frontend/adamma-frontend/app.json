@@ -2,7 +2,7 @@
   "expo": {
     "name": "adamma-frontend",
     "slug": "adamma-frontend",
-    "version": "1.0.4",               
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -26,8 +26,8 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.guskk.adammafrontend",
-      "versionCode": 5,                 
-      "usesCleartextTraffic": true      
+      "versionCode": 5,
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
