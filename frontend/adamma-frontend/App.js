@@ -24,7 +24,7 @@ const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
 const STORAGE_KEY = "ADAMMA_BACKEND_BASE";
 
 // Fallback default; Auto-Detect/Deep Scan will replace this
-const DEFAULT_BACKEND_BASE = "http://10.200.30.140:8000";
+const DEFAULT_BACKEND_BASE = "http://10.200.29.173:8000";
 
 // ---------- helpers ----------
 async function fetchWithTimeout(url, options = {}, ms = 600) {

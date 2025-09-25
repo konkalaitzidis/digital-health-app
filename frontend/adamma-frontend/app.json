@@ -2,7 +2,7 @@
   "expo": {
     "name": "adamma-frontend",
     "slug": "adamma-frontend",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,7 +17,8 @@
       "bundleIdentifier": "com.guskk.adammafrontend",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {
@@ -25,7 +26,9 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.guskk.adammafrontend"
+      "package": "com.guskk.adammafrontend",
+      "versionCode": 4,
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
