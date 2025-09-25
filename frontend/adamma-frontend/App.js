@@ -6,24 +6,65 @@ import {
 } from "react-native";
 import { Accelerometer } from "expo-sensors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Network from "expo-network";
 
 const CLASSES = ["Sedentary", "Light", "Moderate", "Vigorous"];
 const COLORS = {
-  Sedentary: "#9CA3AF", // gray-400
-  Light: "#10B981",     // emerald-500
-  Moderate: "#3B82F6",  // blue-500
-  Vigorous: "#EF4444",  // red-500
+  Sedentary: "#9CA3AF",
+  Light: "#10B981",
+  Moderate: "#3B82F6",
+  Vigorous: "#EF4444",
 };
 
-const FS = 20;               // ~Hz (match training)
+const FS = 20;
 const WIN_SEC = 5;
-const WIN = FS * WIN_SEC;    // 100
+const WIN = FS * WIN_SEC;           // 100
 const OVERLAP = 0.5;
 const STEP = Math.floor(WIN * (1 - OVERLAP)); // 50
-const STORAGE_KEY = "ADAMMA_BACKEND_BASE";    // e.g., http://192.168.1.45:8000
+const STORAGE_KEY = "ADAMMA_BACKEND_BASE";
 
-// Known-good default (exactly what previously worked)
-const DEFAULT_BACKEND_BASE = "http://130.229.158.124:8000"
+// Fallback default; Auto-Detect/Deep Scan will replace this
+const DEFAULT_BACKEND_BASE = "http://10.200.30.140:8000";
+
+// ---------- helpers ----------
+async function fetchWithTimeout(url, options = {}, ms = 600) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function pingBase(base, timeoutMs = 700) {
+  try {
+    const clean = (base || "").replace(/\/+$/, "");
+    const res = await fetchWithTimeout(`${clean}/ping`, {}, timeoutMs);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// limited-concurrency mapper
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let i = 0, active = 0;
+  return new Promise(resolve => {
+    const next = () => {
+      if (i >= items.length && active === 0) return resolve(results);
+      while (active < limit && i < items.length) {
+        const idx = i++;
+        active++;
+        Promise.resolve(worker(items[idx], idx))
+          .then(r => { results[idx] = r; })
+          .finally(() => { active--; next(); });
+      }
+    };
+    next();
+  });
+}
 
 function majorityVote(arr) {
   const counts = {};
@@ -43,14 +84,15 @@ export default function App() {
   const [timers, setTimers] = useState({ Sedentary:0, Light:0, Moderate:0, Vigorous:0 });
   const [status, setStatus] = useState("Starting…");
 
-  const bufferRef = useRef([]);            // rolling [{accel_x, accel_y, accel_z}]
+  const bufferRef = useRef([]);            // [{accel_x, accel_y, accel_z}]
   const postingRef = useRef(false);
   const lastPostTsRef = useRef(0);
-  const predsRef = useRef([]);             // for smoothing
+  const predsRef = useRef([]);             // smoothing
   const tickRef = useRef(null);
-  const ignoreUntilTsRef = useRef(0);      // temporarily ignore classify after reset
+  const ignoreUntilTsRef = useRef(0);
+  const firstBootRef = useRef(true);
 
-  // Load any saved backend base on mount
+  // Load saved backend on mount
   useEffect(() => {
     (async () => {
       try {
@@ -60,32 +102,42 @@ export default function App() {
     })();
   }, []);
 
-  // Start accelerometer stream
+  // First boot: verify current base; if unreachable, try Auto-Detect (quick)
   useEffect(() => {
-    Accelerometer.setUpdateInterval(1000 / FS);
+    if (!firstBootRef.current) return;
+    firstBootRef.current = false;
+    (async () => {
+      const ok = await pingBase(backendBase);
+      if (ok) setStatus(`Backend OK: ${backendBase}`);
+      else await autodetectBackend({ deep:false });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendBase]);
+
+  // Accelerometer stream @ ~20 Hz
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(50); // ms → ~20 Hz
     const sub = Accelerometer.addListener(({ x, y, z }) => {
       bufferRef.current.push({ accel_x: x, accel_y: y, accel_z: z });
 
       const now = Date.now();
-      // gate during reset ignore window
       if (now < ignoreUntilTsRef.current) return;
 
       if (bufferRef.current.length >= WIN && !postingRef.current) {
-        // throttle: at least 1000 ms between posts
-        if (now - lastPostTsRef.current < 1000) return;
-
+        if (now - lastPostTsRef.current < 1000) return; // throttle 1s
         const windowSamples = bufferRef.current.slice(-WIN);
-        bufferRef.current = bufferRef.current.slice(-(WIN - STEP)); // keep overlap
-        classify(windowSamples);
+        bufferRef.current = bufferRef.current.slice(-(WIN - STEP));
+
+        postingRef.current = true;
         lastPostTsRef.current = now;
+        classify(windowSamples).finally(() => { postingRef.current = false; });
       }
     });
-
-    setStatus("Sensor ON");
+    setStatus((s) => (s.startsWith("Backend") ? s : "Sensor ON"));
     return () => { sub && sub.remove(); setStatus("Sensor OFF"); };
   }, []);
 
-  // Per-second timers for the current class
+  // Per-second timers
   useEffect(() => {
     tickRef.current && clearInterval(tickRef.current);
     tickRef.current = setInterval(() => {
@@ -94,32 +146,131 @@ export default function App() {
     return () => clearInterval(tickRef.current);
   }, [current]);
 
-  // Build final predict URL from base (add /predict, strip trailing slash)
   function predictUrl() {
     const base = (backendBase || DEFAULT_BACKEND_BASE).replace(/\/+$/, "");
     return `${base}/predict`;
   }
 
-  async function classify(samples) {
+  // ---- Auto-Detect / Deep Scan ----
+  async function autodetectBackend({ deep = false } = {}) {
     try {
-      postingRef.current = true;
-      setStatus("Predicting…");
-      const res = await fetch(predictUrl(), {
+      setStatus(deep ? "Deep scanning LAN…" : "Detecting backend…");
+
+      // Keep current base if OK
+      if (await pingBase(backendBase)) {
+        setStatus(`Backend OK: ${backendBase}`);
+        return;
+      }
+
+      const ip = await Network.getIpAddressAsync(); // e.g., "192.168.1.23"
+      const parts = (ip || "").split(".");
+      if (parts.length !== 4) throw new Error(`Bad device IP: ${ip}`);
+      const [a, b, c, dStr] = parts;
+      const d = parseInt(dStr, 10);
+      const subnet = `${a}.${b}.${c}`;
+
+      const quickCandidates = [
+        `${subnet}.1`,
+        `${subnet}.${Math.max(2, d - 1)}`,
+        `${subnet}.${d}`,
+        `${subnet}.${Math.min(254, d + 1)}`,
+        `${subnet}.10`,
+        `${subnet}.20`,
+        `${subnet}.30`,
+        `${subnet}.40`,
+        `${subnet}.50`,
+        `${subnet}.100`,
+        `${subnet}.140`, // your known box
+        `${subnet}.154`,
+      ];
+
+      // Quick pass
+      for (const host of quickCandidates) {
+        const base = `http://${host}:8000`;
+        if (await pingBase(base, 700)) {
+          setBackendBase(base);
+          try { await AsyncStorage.setItem(STORAGE_KEY, base); } catch {}
+          setStatus(`Backend detected: ${base}`);
+          return;
+        }
+      }
+
+      if (!deep) {
+        setStatus("Quick detect failed. Try Deep Scan.");
+        return;
+      }
+
+      // Deep scan /24 with concurrency
+      const allHosts = [];
+      for (let x = 2; x <= 254; x++) allHosts.push(`${subnet}.${x}`);
+      const likely = new Set(quickCandidates);
+      allHosts.sort((h1, h2) => (likely.has(h2) ? 1 : 0) - (likely.has(h1) ? 1 : 0));
+
+      const foundRef = { base: null };
+      await mapLimit(allHosts, 48, async (host) => {
+        if (foundRef.base) return null;
+        const base = `http://${host}:8000`;
+        const ok = await pingBase(base, 500);
+        if (ok && !foundRef.base) foundRef.base = base;
+        return ok ? base : null;
+      });
+
+      if (foundRef.base) {
+        setBackendBase(foundRef.base);
+        try { await AsyncStorage.setItem(STORAGE_KEY, foundRef.base); } catch {}
+        setStatus(`Backend detected: ${foundRef.base}`);
+      } else {
+        setStatus("Deep scan didn’t find a backend. Enter URL or use ngrok.");
+      }
+    } catch (e) {
+      setStatus(`Detect failed: ${e?.message || e}`);
+    }
+  }
+
+  async function testBackend() {
+    const base = (backendBase || DEFAULT_BACKEND_BASE).replace(/\/+$/, "");
+    const ok = await pingBase(base);
+    setStatus(ok ? `Ping OK: ${base}` : `Ping FAIL: ${base}`);
+  }
+
+  // ---- Prediction ----
+  async function classify(samples) {
+    const url = predictUrl();
+    setStatus(`Predicting… (${samples.length})`);
+    console.log("POST /predict →", url, "samples:", samples.length);
+
+    const payloadSamples = samples.map(s => ({
+      accel_x: s.accel_x ?? s.x ?? 0,
+      accel_y: s.accel_y ?? s.y ?? 0,
+      accel_z: s.accel_z ?? s.z ?? 0,
+    }));
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      console.log("POST /predict timeout → aborting");
+      controller.abort();
+    }, 10000); // reduce to 4–6s after network is stable
+
+    try {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ samples })
+        body: JSON.stringify({ samples: payloadSamples }),
+        signal: controller.signal,
       });
+
+      console.log("POST /predict status", res.status);
+
       if (!res.ok) {
-        const txt = await res.text().catch(()=> "");
+        const txt = await res.text().catch(() => "");
         console.log("predict non-200:", res.status, txt);
         setStatus(`API ${res.status}`);
         return;
       }
 
       const data = await res.json();
-      const cls = data?.met_class || "Sedentary";
+      const cls = data?.met_class || data?.class || "Sedentary";
 
-      // Smoothing over last 3 predictions (unchanged)
       predsRef.current.push(cls);
       if (predsRef.current.length > 3) predsRef.current.shift();
       const smooth = majorityVote(predsRef.current);
@@ -128,28 +279,24 @@ export default function App() {
       setStatus(`OK: ${smooth}`);
     } catch (e) {
       console.log("predict error:", e?.message || e);
-      setStatus("Offline (keeping last class)");
+      setStatus("Offline or timeout (keeping last class)");
     } finally {
-      postingRef.current = false;
+      clearTimeout(timeout);
     }
   }
 
   function handleReset() {
-    // Zero timers
     setTimers({ Sedentary:0, Light:0, Moderate:0, Vigorous:0 });
-    // Clear prediction history and buffers
     predsRef.current = [];
     bufferRef.current = [];
     lastPostTsRef.current = 0;
-    // Ignore classify briefly to avoid instant re-population
     ignoreUntilTsRef.current = Date.now() + 1500;
-    // Reset UI
     setCurrent("Sedentary");
     setStatus("Reset ✓");
   }
 
   async function handleSaveBackend() {
-    let base = backendBase.trim();
+    let base = (backendBase || "").trim();
     if (base && !/^https?:\/\//.test(base)) base = `http://${base}`;
     setBackendBase(base);
     try { await AsyncStorage.setItem(STORAGE_KEY, base); } catch {}
@@ -158,11 +305,9 @@ export default function App() {
 
   const fmt = s => `${Math.floor(s/60)}m ${s%60}s`;
 
-  // --- Session summary ---
   const total = timers.Sedentary + timers.Light + timers.Moderate + timers.Vigorous;
   const active = timers.Light + timers.Moderate + timers.Vigorous;
   const mvpa = timers.Moderate + timers.Vigorous;
-
   const pct = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
   const activePct = pct(active, total);
   const mvpaPct = pct(mvpa, total);
@@ -179,7 +324,6 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={{ flex:1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.scroll}>
-          {/* Header with Settings */}
           <View style={styles.headerRow}>
             <Text style={styles.title}>Live MET Tracker</Text>
             <Pressable onPress={() => setShowSettings(s => !s)} style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.85 }]}>
@@ -190,23 +334,27 @@ export default function App() {
           {showSettings && (
             <View style={styles.card}>
               <Text style={styles.section}>Backend</Text>
-              <Text style={styles.subtle}>Enter your computer’s URL (e.g., http://192.168.1.45:8000)</Text>
+              <Text style={styles.subtle}>
+                Auto-detect finds a local backend at port 8000 on your Wi-Fi. You can also paste a LAN IP or an ngrok HTTPS URL.
+              </Text>
               <TextInput
                 value={backendBase}
                 onChangeText={setBackendBase}
-                placeholder="http://130.229.158.124:8000"
+                placeholder="http://YOUR-IP:8000  or  https://<ngrok>.ngrok.io"
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
               />
               <View style={{ flexDirection:"row", gap:8, flexWrap:"wrap" }}>
                 <Pressable onPress={handleSaveBackend} style={styles.btn}><Text style={styles.btnText}>Save</Text></Pressable>
+                <Pressable onPress={() => autodetectBackend({ deep:false })} style={styles.btn}><Text style={styles.btnText}>Auto-Detect</Text></Pressable>
+                <Pressable onPress={() => autodetectBackend({ deep:true })} style={styles.btn}><Text style={styles.btnText}>Deep Scan</Text></Pressable>
+                <Pressable onPress={testBackend} style={styles.btn}><Text style={styles.btnText}>Test</Text></Pressable>
               </View>
               <Text style={[styles.subtle, { marginTop:6 }]}>Predict URL will be: {predictUrl()}</Text>
             </View>
           )}
 
-          {/* Main content */}
           <View style={styles.card}>
             <Text style={styles.section}>Current</Text>
             <View style={[styles.currentPill, { backgroundColor: COLORS[current] + "22", borderColor: COLORS[current] }]}>
@@ -250,7 +398,6 @@ export default function App() {
             </View>
           </View>
 
-          {/* Footer */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>Created by Konstantinos Kalaitzidis</Text>
           </View>
@@ -270,7 +417,6 @@ const styles = StyleSheet.create({
   settingsBtn: { paddingHorizontal:12, paddingVertical:6, backgroundColor:"#111827", borderRadius:8 },
   settingsText: { color:"#fff", fontWeight:"700" },
 
-  // Same styling as before, with containers scrollable to fit small screens
   container: { flex:1, padding:20, backgroundColor:"#fff", justifyContent:"space-between" },
   content: { flexGrow:1, gap:16 },
 
